@@ -1,0 +1,142 @@
+---
+- name: Wait for port 22 to become open on the host, don't start checking for 120 seconds
+  hosts: all
+  gather_facts: False
+  tasks:
+  - name: Open 22 port
+    wait_for:
+      port: 22
+      host: '{{ (ansible_ssh_host|default(ansible_host))|default(inventory_hostname) }}'
+      search_regex: OpenSSH
+      delay: 30
+      timeout: 300
+    vars:
+      ansible_connection: local
+
+- name: Update cache for apt
+  hosts: all
+  become: yes
+  tasks:
+  - name: Update repo cache
+    apt:
+     update_cache: true
+     cache_valid_time: 3600
+     force_apt_get: true
+
+- name: Install Docker only
+  hosts: all
+  become: yes
+  tasks:
+  - name: Install Docker
+    apt:
+     name: docker.*
+     state: latest
+
+- name: Install nginx
+  hosts: all
+  become: yes
+  tasks: 
+  - name: Install nginx 
+    apt:
+     name:
+      - nginx
+      - python3-pip
+     state: latest
+
+- name: start Docker for server
+  hosts: all
+  become: yes
+  tasks:
+  - name: start Docker
+    service: 
+      name:  docker
+      state: started
+
+  - name: start Nginx
+    service: 
+      name: nginx
+      state: started
+
+- name: Install docker for python from pip
+  hosts: all
+  become: yes
+  become_user: ubuntu
+  tasks:
+  - name: Install docker python3 module
+    pip:
+      name: docker
+          
+- name: Adding ubuntu to docker
+  hosts: all
+  become: yes
+  tasks:
+  - name: add ubuntu to docker-group
+    user: 
+      name: ubuntu
+      groups: docker
+      append: yes
+
+  - name: Reconect session
+    meta: reset_connection 
+
+- name: Copy docker-tar & script file to remote
+  hosts: all
+  become: true
+  tasks:
+  - name: Copy tar to remote
+    copy:
+     src: "Directory_of_src_code"
+     dest: /home/ubuntu/
+
+  - name:  unarchive file
+    unarchive: 
+     src: /home/ubuntu/"file-name"
+     dest: /home/ubuntu/
+     remote_src: yes
+
+  - name: Change file ownership, group and permissions
+    file:
+     path: /home/ubuntu/"Directory"/
+     owner: ubuntu
+     group: ubuntu
+     mode: '755'
+
+  - name: Copy nginx conf file
+    copy:
+     src: ./ansible/my-demo.conf
+     dest: /etc/nginx/sites-enabled/
+     
+  - name: remove default conf from nginx
+    file:
+     path: /etc/nginx/sites-enabled/default
+     state: absent
+
+   
+- name: Build docker
+  hosts: all
+  tasks:  
+  - name: build container image
+    docker_image:
+      name: my-demo
+      build:
+        path: /home/ubuntu/"directory-name"
+      source: build
+
+- name: run docker
+  hosts: all
+  become: true
+  become_user: root
+  tasks: 
+  - name: run the docker image
+    command: docker run -d -p 3500:3500 my-demo
+    args:
+      chdir: /home/ubuntu/
+  
+- name: Restart Nginx server 
+  hosts: all
+  become: true
+  tasks:
+  - name: restart nginx
+    service: 
+      name: nginx
+      state: restarted
